@@ -325,7 +325,7 @@ def get_games_from_nba_com():
     print("❌ NBA.com API未找到合适的比赛数据")
     return None, None
 
-def check_espn_game_for_50_points(game, api_status=None, games_count=0):
+def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_summary=None):
     """检查ESPN格式的比赛数据中是否有50+得分"""
     found_50_points = False
     
@@ -358,7 +358,91 @@ def check_espn_game_for_50_points(game, api_status=None, games_count=0):
         print(f"  检查ESPN比赛数据时出错: {e}")
         return False
 
-def check_nba_com_game_for_50_points(game, api_status=None, games_count=0):
+def generate_game_summary(games_data, api_source):
+    """生成比赛摘要信息"""
+    if not games_data:
+        return "无比赛数据"
+    
+    summary_lines = []
+    
+    if api_source == "nba_com":
+        for game in games_data:
+            try:
+                # 获取比赛基本信息
+                away_team = game.get('awayTeam', {})
+                home_team = game.get('homeTeam', {})
+                
+                away_name = away_team.get('teamTricode', 'UNK')
+                home_name = home_team.get('teamTricode', 'UNK')
+                away_score = away_team.get('score', 0)
+                home_score = home_team.get('score', 0)
+                
+                game_status = game.get('gameStatusText', 'Unknown')
+                
+                # 获取得分王信息
+                home_leader = game.get('gameLeaders', {}).get('homeLeaders', {})
+                away_leader = game.get('gameLeaders', {}).get('awayLeaders', {})
+                
+                # 格式化比赛信息
+                matchup = f"{away_name} {away_score} - {home_score} {home_name}"
+                if game_status == "Final":
+                    matchup += " (终场)"
+                elif game_status != "Unknown":
+                    matchup += f" ({game_status})"
+                
+                summary_lines.append(f"🏀 **{matchup}**")
+                
+                # 添加得分王信息
+                if home_leader and home_leader.get('points', 0) > 0:
+                    summary_lines.append(f"   {home_leader.get('name', 'Unknown')} ({home_name}): {home_leader.get('points', 0)}分")
+                
+                if away_leader and away_leader.get('points', 0) > 0:
+                    summary_lines.append(f"   {away_leader.get('name', 'Unknown')} ({away_name}): {away_leader.get('points', 0)}分")
+                
+                summary_lines.append("")  # 空行分隔
+                
+            except Exception as e:
+                summary_lines.append(f"🏀 比赛信息解析错误: {e}")
+                summary_lines.append("")
+    
+    elif api_source == "nba_api":
+        # 处理nba_api格式的数据
+        for _, game in games_data.iterrows():
+            try:
+                matchup = game.get('MATCHUP', 'Unknown vs Unknown')
+                game_id = game.get('GAME_ID', 'Unknown')
+                summary_lines.append(f"🏀 **{matchup}** (ID: {game_id})")
+                summary_lines.append("")
+            except Exception as e:
+                summary_lines.append(f"🏀 比赛信息解析错误: {e}")
+                summary_lines.append("")
+    
+    elif api_source == "espn":
+        # 处理ESPN格式的数据
+        for game in games_data:
+            try:
+                competitions = game.get('competitions', [{}])
+                if competitions:
+                    competitors = competitions[0].get('competitors', [])
+                    if len(competitors) >= 2:
+                        home_team = competitors[0]
+                        away_team = competitors[1]
+                        
+                        home_name = home_team.get('team', {}).get('abbreviation', 'UNK')
+                        away_name = away_team.get('team', {}).get('abbreviation', 'UNK')
+                        home_score = home_team.get('score', 0)
+                        away_score = away_team.get('score', 0)
+                        
+                        matchup = f"{away_name} {away_score} - {home_score} {home_name}"
+                        summary_lines.append(f"🏀 **{matchup}**")
+                        summary_lines.append("")
+            except Exception as e:
+                summary_lines.append(f"🏀 比赛信息解析错误: {e}")
+                summary_lines.append("")
+    
+    return "\n".join(summary_lines) if summary_lines else "无法生成比赛摘要"
+
+def check_nba_com_game_for_50_points(game, api_status=None, games_count=0, games_summary=None):
     """检查NBA.com格式的比赛数据中是否有50+得分"""
     found_50_points = False
     
@@ -386,7 +470,7 @@ def check_nba_com_game_for_50_points(game, api_status=None, games_count=0):
                 team_name = leader.get('teamTricode', 'UNK')
                 points = leader.get('points', 0)
                 print(f"🔥 发现50+得分 (从gameLeaders): {player_name} ({team_name}) - {points}分")
-                send_to_discord(player_name, points, team_name, matchup, "50_points", api_status=api_status, games_count=games_count)
+                send_to_discord(player_name, points, team_name, matchup, "50_points", api_status=api_status, games_count=games_count, games_summary=games_summary)
                 found_50_points = True
         
         # 如果gameLeaders中没有50+，尝试获取完整的boxscore数据
@@ -412,7 +496,7 @@ def check_nba_com_game_for_50_points(game, api_status=None, games_count=0):
                             
                             if points >= 50:
                                 print(f"🔥 发现50+得分 (从boxscore): {player_name} ({team_name}) - {points}分")
-                                send_to_discord(player_name, points, team_name, matchup, "50_points", api_status=api_status, games_count=games_count)
+                                send_to_discord(player_name, points, team_name, matchup, "50_points", api_status=api_status, games_count=games_count, games_summary=games_summary)
                                 found_50_points = True
                 else:
                     print(f"    无法获取详细数据，状态码: {response.status_code}")
@@ -519,7 +603,10 @@ def check_for_50_points():
                 return
             
             print(f"检查 {len(games_data)} 场比赛的球员数据...")
-        
+            
+            # 生成比赛摘要
+            games_summary = generate_game_summary(games_data, api_source)
+            
             # 遍历每场比赛
             for _, game in games_data.iterrows():
                 game_id = game['GAME_ID']
@@ -538,7 +625,7 @@ def check_for_50_points():
                         
                         if points >= 50:
                             print(f"🔥 发现50+得分: {player_name} ({team_abbreviation}) - {points}分")
-                            send_to_discord(player_name, points, team_abbreviation, game['MATCHUP'], "50_points", api_status=api_status, games_count=games_count)
+                            send_to_discord(player_name, points, team_abbreviation, game['MATCHUP'], "50_points", api_status=api_status, games_count=games_count, games_summary=games_summary)
                             found_50_points = True
                         
                 except Exception as e:
@@ -553,8 +640,12 @@ def check_for_50_points():
                 return
                 
             print(f"检查 {len(games_data)} 场比赛的球员数据...")
+            
+            # 生成比赛摘要
+            games_summary = generate_game_summary(games_data, api_source)
+            
             for game in games_data:
-                if check_espn_game_for_50_points(game, api_status, games_count):
+                if check_espn_game_for_50_points(game, api_status, games_count, games_summary):
                     found_50_points = True
     
         elif api_source == "nba_com":
@@ -578,15 +669,18 @@ def check_for_50_points():
                 if away_leader:
                     print(f"  {matchup}: {away_leader.get('name', 'Unknown')} ({away_leader.get('teamTricode', 'UNK')}) - {away_leader.get('points', 0)}分")
             
+            # 生成比赛摘要
+            games_summary = generate_game_summary(games_data, api_source)
+            
             # 检查50+得分
             for game in games_data:
-                if check_nba_com_game_for_50_points(game, api_status, games_count):
+                if check_nba_com_game_for_50_points(game, api_status, games_count, games_summary):
                     found_50_points = True
     
         # 如果没有发现50+得分，发送完成通知
         if not found_50_points:
             print("✅ 监控完成，未发现50+得分")
-            send_to_discord(message_type="no_50_points", api_status=api_status, games_count=games_count)
+            send_to_discord(message_type="no_50_points", api_status=api_status, games_count=games_count, games_summary=games_summary)
                 
     except Exception as e:
         error_msg = str(e)
@@ -602,7 +696,7 @@ def check_for_50_points():
         # 发送详细的错误通知
         send_to_discord(message_type="error", error_details=error_msg, api_status=api_status)
 
-def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None, api_status=None, games_count=0):
+def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None, api_status=None, games_count=0, games_summary=None):
     """发送通知到webhook（支持Discord和飞书）"""
     webhook_url = os.getenv('DISCORD_WEBHOOK')
     if not webhook_url:
@@ -654,6 +748,12 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
                 content += f"❌ **失败的API**: {', '.join(failed_apis)}\n"
             content += "\n"
         
+        # 添加比赛详情
+        if games_summary:
+            content += "📋 **今日比赛详情**:\n\n"
+            content += games_summary
+            content += "\n"
+        
         content += f"⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
         
         if webhook_type == "lark":
@@ -702,6 +802,12 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
             failed_apis = api_status.get('failed_apis', [])
             if failed_apis:
                 content += f"❌ **失败的API**: {', '.join(failed_apis)}\n"
+            content += "\n"
+        
+        # 添加比赛详情（如果有）
+        if games_summary:
+            content += "📋 **今日所有比赛**:\n\n"
+            content += games_summary
             content += "\n"
         
         content += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
