@@ -1,13 +1,13 @@
-name: NBA50 DoorDash Monitor
+name: European Football Daily Summary
 
 on:
   schedule:
-    # 美西时间下午4点到晚上11点，每3小时运行一次
-    # 美西时间: 4PM, 7PM, 10PM (PST UTC-8)
-    # 对应UTC时间: 12AM(00), 3AM(03), 6AM(06) 次日
-    # 注意：夏令时期间(PDT UTC-7)会提前1小时
-    - cron: '0 0,3,6 * * *'
-  workflow_dispatch: # 允许你手动点击按钮测试
+    # 美西时间下午3点运行
+    # 美西时间: 3PM (PST UTC-8 / PDT UTC-7)
+    # 对应UTC时间: 11PM(23) 当日 (冬季) / 10PM(22) 当日 (夏季)
+    # 使用冬季时间UTC 23:00，每天运行
+    - cron: '0 23 * * *'
+  workflow_dispatch: # 允许手动运行
     inputs:
       test_mode:
         description: '选择运行模式'
@@ -16,10 +16,10 @@ on:
         type: choice
         options:
         - full
-        - webhook_test
+        - test
 
 jobs:
-  check_nba:
+  football_summary:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -34,32 +34,31 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-pip-football-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
+            ${{ runner.os }}-pip-football-
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install requests nba_api pandas pytz
+          pip install requests pytz
 
-      - name: Run NBA 50+ Points Monitor
+      - name: Run Football Monitor
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
           echo "🕐 当前时间: $(date)"
-          echo "🏀 开始检查NBA球员50+得分情况..."
+          echo "⚽ 开始生成欧洲足球比赛日报..."
           
-          # 检查运行模式
+          # 检查是否为自动调度运行
           if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "📅 自动调度运行 - NBA 50+监控"
-            python nba.py
-          elif [ "${{ github.event.inputs.test_mode }}" = "webhook_test" ]; then
-            echo "🧪 Webhook测试模式"
-            python nba.py test
+            echo "📅 自动调度运行 - 生成足球日报"
+          elif [ "${{ github.event.inputs.test_mode }}" = "test" ]; then
+            echo "🧪 手动测试模式"
           else
             echo "🔧 手动完整模式"
-            python nba.py
           fi
           
-          echo "✅ NBA监控完成"
+          python football_monitor.py
+          echo "✅ 足球监控完成"

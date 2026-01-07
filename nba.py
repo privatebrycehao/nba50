@@ -530,6 +530,17 @@ def check_for_50_points():
     # 首先测试webhook连接
     print("🤖 NBA50监控程序启动...")
     
+    # 显示运行环境信息
+    github_event = os.getenv('GITHUB_EVENT_NAME', 'local')
+    print(f"🔧 运行环境: {github_event}")
+    
+    if github_event == 'schedule':
+        print("📅 这是自动调度运行")
+    elif github_event == 'workflow_dispatch':
+        print("🔧 这是手动触发运行")
+    else:
+        print("💻 这是本地运行")
+    
     if not test_webhook():
         print("⚠️ Webhook测试失败，但继续执行程序...")
     
