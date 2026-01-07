@@ -534,12 +534,14 @@ def check_for_50_points():
     github_event = os.getenv('GITHUB_EVENT_NAME', 'local')
     print(f"🔧 运行环境: {github_event}")
     
+    is_manual_run = github_event in ['workflow_dispatch', 'local']
+    
     if github_event == 'schedule':
-        print("📅 这是自动调度运行")
+        print("📅 这是自动调度运行 - 跳过启动通知")
     elif github_event == 'workflow_dispatch':
-        print("🔧 这是手动触发运行")
+        print("🔧 这是手动触发运行 - 发送启动通知")
     else:
-        print("💻 这是本地运行")
+        print("💻 这是本地运行 - 发送启动通知")
     
     if not test_webhook():
         print("⚠️ Webhook测试失败，但继续执行程序...")
@@ -547,12 +549,15 @@ def check_for_50_points():
     # 测试NBA API连接
     test_nba_api_connection()
     
-    # 发送启动通知
-    try:
-        send_to_discord(message_type="startup")
-        print("✅ 启动通知已发送")
-    except Exception as e:
-        print(f"❌ 发送启动通知失败: {e}")
+    # 智能启动通知：只在手动运行时发送
+    if is_manual_run:
+        try:
+            send_to_discord(message_type="startup")
+            print("✅ 启动通知已发送")
+        except Exception as e:
+            print(f"❌ 发送启动通知失败: {e}")
+    else:
+        print("ℹ️ 自动调度运行，跳过启动通知")
     
     found_50_points = False
     
