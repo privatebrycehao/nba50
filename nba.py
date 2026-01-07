@@ -45,6 +45,59 @@ def get_boxscore_with_retry(game_id, max_retries=3, delay=3):
             else:
                 raise e
 
+def detect_webhook_type(webhook_url):
+    """检测webhook类型"""
+    if "discord" in webhook_url.lower():
+        return "discord"
+    elif "larksuite.com" in webhook_url.lower() or "feishu" in webhook_url.lower():
+        return "lark"
+    else:
+        return "unknown"
+
+def create_lark_message(title, content, color="green"):
+    """创建飞书消息格式"""
+    color_map = {
+        "green": "green",
+        "red": "red", 
+        "blue": "blue",
+        "yellow": "yellow",
+        "grey": "grey"
+    }
+    
+    return {
+        "msg_type": "interactive",
+        "card": {
+            "elements": [
+                {
+                    "tag": "div",
+                    "text": {
+                        "content": f"**{title}**\n\n{content}",
+                        "tag": "lark_md"
+                    }
+                }
+            ],
+            "header": {
+                "title": {
+                    "content": title,
+                    "tag": "plain_text"
+                },
+                "template": color_map.get(color, "green")
+            }
+        }
+    }
+
+def create_discord_message(title, content, color=65280):
+    """创建Discord消息格式"""
+    return {
+        "content": f"🔥 **{title}**",
+        "embeds": [{
+            "title": title,
+            "description": content,
+            "color": color,
+            "footer": {"text": "由 GitHub Actions 自动监控"}
+        }]
+    }
+
 def test_webhook():
     """测试webhook连接"""
     print("🧪 测试webhook连接...")
@@ -56,20 +109,30 @@ def test_webhook():
     
     print(f"✅ 找到webhook URL: {webhook_url[:50]}...")
     
-    # 发送简单的测试消息
-    test_data = {
-        "content": "🧪 **Webhook测试**",
-        "embeds": [{
-            "title": "连接测试成功！",
-            "description": f"NBA50监控程序webhook连接正常\n\n⏰ 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-            "color": 65280, # 绿色
-            "footer": {"text": "Webhook连接测试"}
-        }]
-    }
+    # 检测webhook类型
+    webhook_type = detect_webhook_type(webhook_url)
+    print(f"🔍 检测到webhook类型: {webhook_type}")
+    
+    # 根据类型创建测试消息
+    if webhook_type == "lark":
+        test_data = create_lark_message(
+            "🧪 Webhook测试", 
+            f"NBA50监控程序webhook连接正常\n\n⏰ 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            "green"
+        )
+        expected_status = 200
+    else:
+        # 默认使用Discord格式
+        test_data = create_discord_message(
+            "连接测试成功！",
+            f"NBA50监控程序webhook连接正常\n\n⏰ 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            65280
+        )
+        expected_status = 204
     
     try:
         response = requests.post(webhook_url, json=test_data, timeout=10)
-        if response.status_code == 204:
+        if response.status_code == expected_status:
             print("✅ Webhook测试成功！")
             return True
         else:
@@ -147,47 +210,42 @@ def check_for_50_points():
         send_to_discord(message_type="error", error_details=error_msg)
 
 def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None):
-    """发送通知到Discord"""
+    """发送通知到webhook（支持Discord和飞书）"""
     webhook_url = os.getenv('DISCORD_WEBHOOK')
     if not webhook_url:
         print("警告: 未设置 DISCORD_WEBHOOK 环境变量")
         return
     
+    # 检测webhook类型
+    webhook_type = detect_webhook_type(webhook_url)
+    
+    # 根据消息类型和webhook类型创建消息
     if message_type == "startup":
-        # 启动通知
-        data = {
-            "content": "🤖 **NBA50监控启动**",
-            "embeds": [{
-                "title": "NBA50分监控程序已启动",
-                "description": f"开始检查今日NBA比赛中的50+得分情况...\n\n⏰ 运行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                "color": 3447003, # 蓝色
-                "footer": {"text": "由 GitHub Actions 自动运行"}
-            }]
-        }
+        title = "🤖 NBA50监控启动"
+        content = f"NBA50分监控程序已启动\n开始检查今日NBA比赛中的50+得分情况...\n\n⏰ 运行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        
+        if webhook_type == "lark":
+            data = create_lark_message(title, content, "blue")
+        else:
+            data = create_discord_message("NBA50分监控程序已启动", content, 3447003)
     elif message_type == "no_games":
-        # 无比赛通知
-        data = {
-            "content": "📅 **今日无NBA比赛**",
-            "embeds": [{
-                "title": "监控完成",
-                "description": f"今日没有NBA比赛安排\n\n⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                "color": 10197915, # 灰色
-                "footer": {"text": "由 GitHub Actions 自动监控"}
-            }]
-        }
+        title = "📅 今日无NBA比赛"
+        content = f"今日没有NBA比赛安排\n\n⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        
+        if webhook_type == "lark":
+            data = create_lark_message(title, content, "grey")
+        else:
+            data = create_discord_message("监控完成", content, 10197915)
     elif message_type == "no_50_points":
-        # 无50+得分通知
-        data = {
-            "content": "📊 **今日监控完成**",
-            "embeds": [{
-                "title": "未发现50+得分",
-                "description": f"已检查完今日所有比赛，暂无球员得分达到50+\n\n⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-                "color": 15844367, # 金色
-                "footer": {"text": "由 GitHub Actions 自动监控"}
-            }]
-        }
+        title = "📊 今日监控完成"
+        content = f"已检查完今日所有比赛，暂无球员得分达到50+\n\n⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        
+        if webhook_type == "lark":
+            data = create_lark_message(title, content, "yellow")
+        else:
+            data = create_discord_message("未发现50+得分", content, 15844367)
     elif message_type == "error":
-        # 错误通知
+        title = "⚠️ 监控程序遇到错误"
         error_desc = f"NBA50监控程序在运行时遇到错误\n\n"
         if error_details:
             if "timeout" in error_details.lower():
@@ -199,42 +257,39 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
         
         error_desc += f"⏰ 错误时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
         
-        data = {
-            "content": "⚠️ **监控程序遇到错误**",
-            "embeds": [{
-                "title": "程序执行异常",
-                "description": error_desc,
-                "color": 15158332, # 红色
-                "footer": {"text": "由 GitHub Actions 自动监控"}
-            }]
-        }
+        if webhook_type == "lark":
+            data = create_lark_message(title, error_desc, "red")
+        else:
+            data = create_discord_message("程序执行异常", error_desc, 15158332)
     else:
         # 50+得分通知
-        data = {
-            "content": "🔥 **NBA50 优惠预警!**",
-            "embeds": [{
-                "title": "50分记录达成！",
-                "description": f"球员 **{player}** ({team}) 在今天的比赛中砍下了 **{pts}** 分！\n\n比赛: {matchup}\n\n**DoorDash NBA50** 优惠码预计将于明日 9:00 AM PT 生效！",
-                "color": 16711680, # 红色
-                "footer": {"text": f"由 GitHub Actions 自动监控 • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"}
-            }]
-        }
+        title = "🔥 NBA50 优惠预警!"
+        content = f"球员 **{player}** ({team}) 在今天的比赛中砍下了 **{pts}** 分！\n\n比赛: {matchup}\n\n**DoorDash NBA50** 优惠码预计将于明日 9:00 AM PT 生效！\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        
+        if webhook_type == "lark":
+            data = create_lark_message(title, content, "red")
+        else:
+            data = create_discord_message("50分记录达成！", content, 16711680)
     
     try:
-        print(f"📤 正在发送{message_type}类型的Discord通知...")
+        print(f"📤 正在发送{message_type}类型的{webhook_type}通知...")
         response = requests.post(webhook_url, json=data, timeout=10)
-        if response.status_code == 204:
+        
+        # 根据webhook类型检查成功状态码
+        expected_status = 200 if webhook_type == "lark" else 204
+        
+        if response.status_code == expected_status:
             if message_type == "startup":
                 print("✅ 成功发送启动通知")
             elif message_type == "50_points":
-                print(f"✅ 成功发送Discord通知: {player} {pts}分")
+                print(f"✅ 成功发送通知: {player} {pts}分")
             else:
                 print("✅ 成功发送监控完成通知")
         else:
-            print(f"❌ Discord通知发送失败: {response.status_code}")
+            print(f"❌ 通知发送失败: {response.status_code}")
             print(f"响应内容: {response.text}")
     except Exception as e:
-        print(f"❌ 发送Discord通知时出错: {e}")
+        print(f"❌ 发送通知时出错: {e}")
         import traceback
         print(f"详细错误信息: {traceback.format_exc()}")
 
