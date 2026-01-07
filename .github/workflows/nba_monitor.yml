@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install requests nba_api pandas
+          pip install requests nba_api pandas pytz
 
       - name: Test Webhook Connection (if webhook_test mode)
         if: ${{ github.event.inputs.test_mode == 'webhook_test' }}
