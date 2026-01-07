@@ -1,8 +1,9 @@
 import os
 import requests
 import time
+import json
 from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2
-from datetime import datetime
+from datetime import datetime, date
 
 # 设置NBA API的请求头，避免被识别为爬虫
 headers = {
@@ -164,6 +165,128 @@ def test_webhook():
         print(f"❌ Webhook测试出错: {e}")
         return False
 
+def get_games_from_espn():
+    """使用ESPN API获取今日NBA比赛数据"""
+    print("🏀 尝试使用ESPN API获取数据...")
+    try:
+        today = date.today().strftime('%Y%m%d')
+        espn_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={today}"
+        
+        response = requests.get(espn_url, timeout=30, headers=headers)
+        if response.status_code != 200:
+            raise Exception(f"ESPN API响应错误: {response.status_code}")
+        
+        data = response.json()
+        games = data.get('events', [])
+        
+        print(f"✅ ESPN API成功获取到 {len(games)} 场比赛")
+        return games, "espn"
+    
+    except Exception as e:
+        print(f"❌ ESPN API获取失败: {e}")
+        return None, None
+
+def get_games_from_nba_com():
+    """使用NBA.com API获取今日比赛数据"""
+    print("🏀 尝试使用NBA.com API获取数据...")
+    try:
+        today = date.today().strftime('%Y-%m-%d')
+        nba_url = f"https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+        
+        response = requests.get(nba_url, timeout=30, headers=headers)
+        if response.status_code != 200:
+            raise Exception(f"NBA.com API响应错误: {response.status_code}")
+        
+        data = response.json()
+        games = data.get('scoreboard', {}).get('games', [])
+        
+        print(f"✅ NBA.com API成功获取到 {len(games)} 场比赛")
+        return games, "nba_com"
+    
+    except Exception as e:
+        print(f"❌ NBA.com API获取失败: {e}")
+        return None, None
+
+def check_espn_game_for_50_points(game, api_status=None, games_count=0):
+    """检查ESPN格式的比赛数据中是否有50+得分"""
+    found_50_points = False
+    
+    try:
+        # ESPN API的比赛状态检查
+        status = game.get('status', {}).get('type', {}).get('name', '')
+        if status not in ['STATUS_FINAL', 'STATUS_IN_PROGRESS']:
+            print(f"  比赛未开始或状态未知: {status}")
+            return False
+        
+        # 获取比赛信息
+        home_team = game.get('competitions', [{}])[0].get('competitors', [{}])[0]
+        away_team = game.get('competitions', [{}])[0].get('competitors', [{}])[1]
+        
+        matchup = f"{away_team.get('team', {}).get('abbreviation', 'UNK')} @ {home_team.get('team', {}).get('abbreviation', 'UNK')}"
+        
+        # 检查两队的球员统计
+        for team in [home_team, away_team]:
+            team_name = team.get('team', {}).get('abbreviation', 'UNK')
+            
+            # ESPN API通常不直接提供球员统计，需要额外请求
+            # 这里我们先检查是否有可用的统计数据
+            if 'statistics' in team:
+                print(f"  检查 {team_name} 队球员数据...")
+                # 这里需要根据ESPN API的实际结构来解析球员数据
+                
+        return found_50_points
+        
+    except Exception as e:
+        print(f"  检查ESPN比赛数据时出错: {e}")
+        return False
+
+def check_nba_com_game_for_50_points(game, api_status=None, games_count=0):
+    """检查NBA.com格式的比赛数据中是否有50+得分"""
+    found_50_points = False
+    
+    try:
+        game_id = game.get('gameId')
+        if not game_id:
+            return False
+            
+        # 检查比赛状态
+        game_status = game.get('gameStatus')
+        if game_status not in [2, 3]:  # 2=进行中, 3=已结束
+            print(f"  比赛 {game_id} 未开始")
+            return False
+            
+        matchup = f"{game.get('awayTeam', {}).get('teamTricode', 'UNK')} @ {game.get('homeTeam', {}).get('teamTricode', 'UNK')}"
+        print(f"  检查比赛: {matchup}")
+        
+        # 获取详细的球员统计数据
+        boxscore_url = f"https://cdn.nba.com/static/json/liveData/boxscore/boxscore_{game_id}.json"
+        response = requests.get(boxscore_url, timeout=30, headers=headers)
+        
+        if response.status_code == 200:
+            boxscore_data = response.json()
+            
+            # 检查主队和客队的球员数据
+            for team_key in ['homeTeam', 'awayTeam']:
+                team_data = boxscore_data.get('game', {}).get(team_key, {})
+                players = team_data.get('players', [])
+                team_name = team_data.get('teamTricode', 'UNK')
+                
+                for player in players:
+                    stats = player.get('statistics', {})
+                    points = stats.get('points', 0)
+                    player_name = f"{player.get('firstName', '')} {player.get('lastName', '')}"
+                    
+                    if points >= 50:
+                        print(f"🔥 发现50+得分: {player_name} ({team_name}) - {points}分")
+                        send_to_discord(player_name, points, team_name, matchup, "50_points", api_status=api_status, games_count=games_count)
+                        found_50_points = True
+        
+        return found_50_points
+        
+    except Exception as e:
+        print(f"  检查NBA.com比赛数据时出错: {e}")
+        return False
+
 def test_nba_api_connection():
     """测试NBA API连接"""
     print("🌐 测试NBA API连接...")
@@ -201,48 +324,116 @@ def check_for_50_points():
     found_50_points = False
     
     try:
-        # 获取当日比赛数据（带重试）
-        scoreboard = get_scoreboard_with_retry()
-        games = scoreboard.get_data_frames()[0]  # GameHeader
-        
-        print(f"📊 成功获取比赛列表，共{len(games)}场比赛")
-        
-        if games.empty:
-            print("今日没有比赛")
-            send_to_discord(message_type="no_games")
-            return
-        
-        print(f"检查 {len(games)} 场比赛的球员数据...")
-        
-        # 遍历每场比赛
-        for _, game in games.iterrows():
-            game_id = game['GAME_ID']
-            print(f"检查比赛 {game_id}: {game['MATCHUP']}")
+        # 尝试多个API来源
+        games_data = None
+        api_source = None
+        api_status = {
+            'failed_apis': [],
+            'successful_api': None
+        }
+        games_count = 0
+    
+        # 方法1: 尝试原始的nba_api
+        try:
+            print("📊 方法1: 使用nba_api获取数据...")
+            scoreboard = get_scoreboard_with_retry()
+            games_df = scoreboard.get_data_frames()[0]  # GameHeader
             
-            # 获取比赛的详细统计数据（带重试）
-            try:
-                boxscore = get_boxscore_with_retry(game_id)
-                player_stats = boxscore.get_data_frames()[0]  # PlayerStats
-                
-                # 检查每个球员的得分
-                for _, player in player_stats.iterrows():
-                    points = player['PTS']
-                    player_name = player['PLAYER_NAME']
-                    team_abbreviation = player['TEAM_ABBREVIATION']
-                    
-                    if points >= 50:
-                        print(f"🔥 发现50+得分: {player_name} ({team_abbreviation}) - {points}分")
-                        send_to_discord(player_name, points, team_abbreviation, game['MATCHUP'], "50_points")
-                        found_50_points = True
-                        
-            except Exception as e:
-                print(f"获取比赛 {game_id} 数据时出错: {e}")
-                continue
+            if not games_df.empty:
+                games_count = len(games_df)
+                print(f"✅ nba_api成功获取到 {games_count} 场比赛")
+                games_data = games_df
+                api_source = "nba_api"
+                api_status['successful_api'] = "NBA API (nba_api)"
+        except Exception as e:
+            print(f"❌ nba_api获取失败: {e}")
+            api_status['failed_apis'].append("NBA API")
         
+        # 方法2: 如果nba_api失败，尝试ESPN API
+        if games_data is None:
+            games_data, api_source = get_games_from_espn()
+            if games_data is not None:
+                games_count = len(games_data)
+                api_status['successful_api'] = "ESPN API"
+            else:
+                api_status['failed_apis'].append("ESPN API")
+        
+        # 方法3: 如果ESPN也失败，尝试NBA.com API
+        if games_data is None:
+            games_data, api_source = get_games_from_nba_com()
+            if games_data is not None:
+                games_count = len(games_data)
+                api_status['successful_api'] = "NBA.com API"
+            else:
+                api_status['failed_apis'].append("NBA.com API")
+        
+        # 如果所有API都失败了
+        if games_data is None:
+            raise Exception("所有API都无法获取数据")
+    
+        # 根据API来源处理数据
+        if api_source == "nba_api":
+            # 使用原有的nba_api逻辑
+            if games_data.empty:
+                print("今日没有比赛")
+                send_to_discord(message_type="no_games", api_status=api_status, games_count=0)
+                return
+            
+            print(f"检查 {len(games_data)} 场比赛的球员数据...")
+        
+            # 遍历每场比赛
+            for _, game in games_data.iterrows():
+                game_id = game['GAME_ID']
+                print(f"检查比赛 {game_id}: {game['MATCHUP']}")
+                
+                # 获取比赛的详细统计数据（带重试）
+                try:
+                    boxscore = get_boxscore_with_retry(game_id)
+                    player_stats = boxscore.get_data_frames()[0]  # PlayerStats
+                    
+                    # 检查每个球员的得分
+                    for _, player in player_stats.iterrows():
+                        points = player['PTS']
+                        player_name = player['PLAYER_NAME']
+                        team_abbreviation = player['TEAM_ABBREVIATION']
+                        
+                        if points >= 50:
+                            print(f"🔥 发现50+得分: {player_name} ({team_abbreviation}) - {points}分")
+                            send_to_discord(player_name, points, team_abbreviation, game['MATCHUP'], "50_points", api_status=api_status, games_count=games_count)
+                            found_50_points = True
+                        
+                except Exception as e:
+                    print(f"获取比赛 {game_id} 数据时出错: {e}")
+                    continue
+    
+        elif api_source == "espn":
+            # 使用ESPN API逻辑
+            if not games_data:
+                print("今日没有比赛")
+                send_to_discord(message_type="no_games", api_status=api_status, games_count=0)
+                return
+                
+            print(f"检查 {len(games_data)} 场比赛的球员数据...")
+            for game in games_data:
+                if check_espn_game_for_50_points(game, api_status, games_count):
+                    found_50_points = True
+    
+        elif api_source == "nba_com":
+            # 使用NBA.com API逻辑
+            if not games_data:
+                print("今日没有比赛")
+                send_to_discord(message_type="no_games", api_status=api_status, games_count=0)
+                return
+                
+            print(f"检查 {len(games_data)} 场比赛的球员数据...")
+            for game in games_data:
+                if check_nba_com_game_for_50_points(game, api_status, games_count):
+                    found_50_points = True
+    
         # 如果没有发现50+得分，发送完成通知
         if not found_50_points:
             print("✅ 监控完成，未发现50+得分")
-            send_to_discord(message_type="no_50_points")
+            send_to_discord(message_type="no_50_points", api_status=api_status, games_count=games_count)
                 
     except Exception as e:
         error_msg = str(e)
@@ -256,9 +447,9 @@ def check_for_50_points():
             print("💡 建议: 网络连接问题，可能是临时的")
         
         # 发送详细的错误通知
-        send_to_discord(message_type="error", error_details=error_msg)
+        send_to_discord(message_type="error", error_details=error_msg, api_status=api_status)
 
-def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None):
+def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None, api_status=None, games_count=0):
     """发送通知到webhook（支持Discord和飞书）"""
     webhook_url = os.getenv('DISCORD_WEBHOOK')
     if not webhook_url:
@@ -279,7 +470,18 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
             data = create_discord_message("NBA50分监控程序已启动", content, 3447003)
     elif message_type == "no_games":
         title = "📅 今日无NBA比赛"
-        content = f"今日没有NBA比赛安排\n\n⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        content = f"今日没有NBA比赛安排\n\n"
+        
+        # 添加API状态信息
+        if api_status:
+            content += f"📡 **数据来源**: {api_status.get('successful_api', 'Unknown')}\n"
+            
+            failed_apis = api_status.get('failed_apis', [])
+            if failed_apis:
+                content += f"❌ **失败的API**: {', '.join(failed_apis)}\n"
+            content += "\n"
+        
+        content += f"⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
         
         if webhook_type == "lark":
             data = create_lark_message(title, content, "grey")
@@ -287,7 +489,19 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
             data = create_discord_message("监控完成", content, 10197915)
     elif message_type == "no_50_points":
         title = "📊 今日监控完成"
-        content = f"已检查完今日所有比赛，暂无球员得分达到50+\n\n⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        content = f"已检查完今日所有比赛，暂无球员得分达到50+\n\n"
+        
+        # 添加API状态信息
+        if api_status:
+            content += f"📡 **数据来源**: {api_status.get('successful_api', 'Unknown')}\n"
+            content += f"🏀 **比赛数量**: {games_count} 场\n"
+            
+            failed_apis = api_status.get('failed_apis', [])
+            if failed_apis:
+                content += f"❌ **失败的API**: {', '.join(failed_apis)}\n"
+            content += "\n"
+        
+        content += f"⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
         
         if webhook_type == "lark":
             data = create_lark_message(title, content, "yellow")
@@ -296,11 +510,25 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
     elif message_type == "error":
         title = "⚠️ 监控程序遇到错误"
         error_desc = f"NBA50监控程序在运行时遇到错误\n\n"
+        
+        # 添加API状态信息
+        if api_status:
+            failed_apis = api_status.get('failed_apis', [])
+            if failed_apis:
+                error_desc += f"❌ **失败的API**: {', '.join(failed_apis)}\n"
+            
+            successful_api = api_status.get('successful_api')
+            if successful_api:
+                error_desc += f"✅ **成功的API**: {successful_api}\n"
+            error_desc += "\n"
+        
         if error_details:
             if "timeout" in error_details.lower():
                 error_desc += "**错误类型**: 网络超时\n**可能原因**: NBA API响应缓慢或网络连接问题\n**建议**: 程序会自动重试，如持续出现请检查网络状态\n\n"
             elif "httpsconnectionpool" in error_details.lower():
                 error_desc += "**错误类型**: 连接失败\n**可能原因**: NBA API服务器暂时不可用\n**建议**: 稍后会自动重试\n\n"
+            elif "所有API都无法获取数据" in error_details:
+                error_desc += "**错误类型**: 所有API失败\n**可能原因**: 网络问题或所有NBA数据源暂时不可用\n**建议**: 程序会在下次调度时间自动重试\n\n"
             else:
                 error_desc += f"**错误详情**: {error_details[:200]}{'...' if len(error_details) > 200 else ''}\n\n"
         
@@ -313,7 +541,17 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
     else:
         # 50+得分通知
         title = "🔥 NBA50 优惠预警!"
-        content = f"球员 **{player}** ({team}) 在今天的比赛中砍下了 **{pts}** 分！\n\n比赛: {matchup}\n\n**DoorDash NBA50** 优惠码预计将于明日 9:00 AM PT 生效！\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        content = f"球员 **{player}** ({team}) 在今天的比赛中砍下了 **{pts}** 分！\n\n比赛: {matchup}\n\n**DoorDash NBA50** 优惠码预计将于明日 9:00 AM PT 生效！\n\n"
+        
+        # 添加API状态信息
+        if api_status:
+            content += f"📡 **数据来源**: {api_status.get('successful_api', 'Unknown')}\n"
+            failed_apis = api_status.get('failed_apis', [])
+            if failed_apis:
+                content += f"❌ **失败的API**: {', '.join(failed_apis)}\n"
+            content += "\n"
+        
+        content += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
         
         if webhook_type == "lark":
             data = create_lark_message(title, content, "red")
