@@ -14,34 +14,55 @@ headers = {
     'Referer': 'https://www.nba.com/'
 }
 
-def get_scoreboard_with_retry(max_retries=3, delay=5):
+def get_scoreboard_with_retry(max_retries=5, delay=10):
     """带重试机制获取比赛数据"""
     for attempt in range(max_retries):
         try:
             print(f"尝试获取比赛数据 (第{attempt + 1}次)...")
-            # 设置更长的超时时间
-            scoreboard = scoreboardv2.ScoreboardV2(timeout=60, headers=headers)
+            # 逐步增加超时时间
+            timeout_seconds = 60 + (attempt * 30)  # 60, 90, 120, 150, 180秒
+            print(f"  使用超时时间: {timeout_seconds}秒")
+            
+            # 尝试不同的方法
+            if attempt < 2:
+                # 前两次使用自定义headers
+                scoreboard = scoreboardv2.ScoreboardV2(timeout=timeout_seconds, headers=headers)
+            else:
+                # 后面几次使用默认设置，可能更稳定
+                scoreboard = scoreboardv2.ScoreboardV2(timeout=timeout_seconds)
+            
+            print("✅ 成功获取比赛数据")
             return scoreboard
         except Exception as e:
             print(f"第{attempt + 1}次尝试失败: {e}")
             if attempt < max_retries - 1:
-                print(f"等待{delay}秒后重试...")
-                time.sleep(delay)
+                # 逐步增加等待时间
+                wait_time = delay + (attempt * 5)  # 10, 15, 20, 25秒
+                print(f"等待{wait_time}秒后重试...")
+                time.sleep(wait_time)
             else:
+                print("❌ 所有重试都失败了")
                 raise e
 
-def get_boxscore_with_retry(game_id, max_retries=3, delay=3):
+def get_boxscore_with_retry(game_id, max_retries=3, delay=5):
     """带重试机制获取比赛详细数据"""
     for attempt in range(max_retries):
         try:
             print(f"  获取比赛 {game_id} 数据 (第{attempt + 1}次)...")
-            boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id, timeout=60, headers=headers)
+            timeout_seconds = 90 + (attempt * 30)  # 90, 120, 150秒
+            
+            if attempt < 2:
+                boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id, timeout=timeout_seconds, headers=headers)
+            else:
+                boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id, timeout=timeout_seconds)
+            
             return boxscore
         except Exception as e:
             print(f"  第{attempt + 1}次尝试失败: {e}")
             if attempt < max_retries - 1:
-                print(f"  等待{delay}秒后重试...")
-                time.sleep(delay)
+                wait_time = delay + (attempt * 3)
+                print(f"  等待{wait_time}秒后重试...")
+                time.sleep(wait_time)
             else:
                 raise e
 
@@ -143,6 +164,22 @@ def test_webhook():
         print(f"❌ Webhook测试出错: {e}")
         return False
 
+def test_nba_api_connection():
+    """测试NBA API连接"""
+    print("🌐 测试NBA API连接...")
+    try:
+        # 简单的连接测试
+        response = requests.get("https://stats.nba.com", timeout=10, headers=headers)
+        if response.status_code == 200:
+            print("✅ NBA网站连接正常")
+            return True
+        else:
+            print(f"⚠️ NBA网站响应异常: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ NBA网站连接失败: {e}")
+        return False
+
 def check_for_50_points():
     """检查当日所有比赛中是否有球员得分50+"""
     # 首先测试webhook连接
@@ -150,6 +187,9 @@ def check_for_50_points():
     
     if not test_webhook():
         print("⚠️ Webhook测试失败，但继续执行程序...")
+    
+    # 测试NBA API连接
+    test_nba_api_connection()
     
     # 发送启动通知
     try:
@@ -164,6 +204,8 @@ def check_for_50_points():
         # 获取当日比赛数据（带重试）
         scoreboard = get_scoreboard_with_retry()
         games = scoreboard.get_data_frames()[0]  # GameHeader
+        
+        print(f"📊 成功获取比赛列表，共{len(games)}场比赛")
         
         if games.empty:
             print("今日没有比赛")
@@ -205,6 +247,13 @@ def check_for_50_points():
     except Exception as e:
         error_msg = str(e)
         print(f"获取比赛数据时出错: {error_msg}")
+        
+        # 根据错误类型提供不同的建议
+        if "timeout" in error_msg.lower():
+            print("💡 建议: NBA API响应缓慢，这在比赛高峰期很常见")
+            print("💡 程序会在下次调度时间自动重试")
+        elif "connection" in error_msg.lower():
+            print("💡 建议: 网络连接问题，可能是临时的")
         
         # 发送详细的错误通知
         send_to_discord(message_type="error", error_details=error_msg)
