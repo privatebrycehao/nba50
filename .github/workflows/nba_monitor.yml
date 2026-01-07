@@ -7,6 +7,15 @@ on:
     # 对应UTC时间 4AM, 6AM, 8AM
     - cron: '0 4,6,8 * * *'
   workflow_dispatch: # 允许你手动点击按钮测试
+    inputs:
+      test_mode:
+        description: '选择运行模式'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+        - full
+        - webhook_test
 
 jobs:
   check_nba:
@@ -33,7 +42,17 @@ jobs:
           pip install --upgrade pip
           pip install requests nba_api pandas
 
-      - name: Run NBA 50+ Points Monitor
+      - name: Test Webhook Connection (if webhook_test mode)
+        if: ${{ github.event.inputs.test_mode == 'webhook_test' }}
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          echo "🧪 测试Webhook连接..."
+          python nba.py test
+          echo "Webhook测试完成"
+
+      - name: Run NBA 50+ Points Monitor (if full mode)
+        if: ${{ github.event.inputs.test_mode != 'webhook_test' }}
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |

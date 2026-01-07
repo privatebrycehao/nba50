@@ -1,19 +1,105 @@
 import os
 import requests
+import time
 from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2
 from datetime import datetime
 
+# 设置NBA API的请求头，避免被识别为爬虫
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Referer': 'https://www.nba.com/'
+}
+
+def get_scoreboard_with_retry(max_retries=3, delay=5):
+    """带重试机制获取比赛数据"""
+    for attempt in range(max_retries):
+        try:
+            print(f"尝试获取比赛数据 (第{attempt + 1}次)...")
+            # 设置更长的超时时间
+            scoreboard = scoreboardv2.ScoreboardV2(timeout=60, headers=headers)
+            return scoreboard
+        except Exception as e:
+            print(f"第{attempt + 1}次尝试失败: {e}")
+            if attempt < max_retries - 1:
+                print(f"等待{delay}秒后重试...")
+                time.sleep(delay)
+            else:
+                raise e
+
+def get_boxscore_with_retry(game_id, max_retries=3, delay=3):
+    """带重试机制获取比赛详细数据"""
+    for attempt in range(max_retries):
+        try:
+            print(f"  获取比赛 {game_id} 数据 (第{attempt + 1}次)...")
+            boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id, timeout=60, headers=headers)
+            return boxscore
+        except Exception as e:
+            print(f"  第{attempt + 1}次尝试失败: {e}")
+            if attempt < max_retries - 1:
+                print(f"  等待{delay}秒后重试...")
+                time.sleep(delay)
+            else:
+                raise e
+
+def test_webhook():
+    """测试webhook连接"""
+    print("🧪 测试webhook连接...")
+    webhook_url = os.getenv('DISCORD_WEBHOOK')
+    
+    if not webhook_url:
+        print("❌ 错误: 未找到DISCORD_WEBHOOK环境变量")
+        return False
+    
+    print(f"✅ 找到webhook URL: {webhook_url[:50]}...")
+    
+    # 发送简单的测试消息
+    test_data = {
+        "content": "🧪 **Webhook测试**",
+        "embeds": [{
+            "title": "连接测试成功！",
+            "description": f"NBA50监控程序webhook连接正常\n\n⏰ 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+            "color": 65280, # 绿色
+            "footer": {"text": "Webhook连接测试"}
+        }]
+    }
+    
+    try:
+        response = requests.post(webhook_url, json=test_data, timeout=10)
+        if response.status_code == 204:
+            print("✅ Webhook测试成功！")
+            return True
+        else:
+            print(f"❌ Webhook测试失败，状态码: {response.status_code}")
+            print(f"响应内容: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Webhook测试出错: {e}")
+        return False
+
 def check_for_50_points():
     """检查当日所有比赛中是否有球员得分50+"""
-    # 发送启动通知
+    # 首先测试webhook连接
     print("🤖 NBA50监控程序启动...")
-    send_to_discord(message_type="startup")
+    
+    if not test_webhook():
+        print("⚠️ Webhook测试失败，但继续执行程序...")
+    
+    # 发送启动通知
+    try:
+        send_to_discord(message_type="startup")
+        print("✅ 启动通知已发送")
+    except Exception as e:
+        print(f"❌ 发送启动通知失败: {e}")
     
     found_50_points = False
     
     try:
-        # 获取当日比赛数据
-        scoreboard = scoreboardv2.ScoreboardV2()
+        # 获取当日比赛数据（带重试）
+        scoreboard = get_scoreboard_with_retry()
         games = scoreboard.get_data_frames()[0]  # GameHeader
         
         if games.empty:
@@ -28,9 +114,9 @@ def check_for_50_points():
             game_id = game['GAME_ID']
             print(f"检查比赛 {game_id}: {game['MATCHUP']}")
             
-            # 获取比赛的详细统计数据
+            # 获取比赛的详细统计数据（带重试）
             try:
-                boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id)
+                boxscore = get_boxscore_with_retry(game_id)
                 player_stats = boxscore.get_data_frames()[0]  # PlayerStats
                 
                 # 检查每个球员的得分
@@ -54,11 +140,13 @@ def check_for_50_points():
             send_to_discord(message_type="no_50_points")
                 
     except Exception as e:
-        print(f"获取比赛数据时出错: {e}")
-        # 发送错误通知
-        send_to_discord(message_type="error")
+        error_msg = str(e)
+        print(f"获取比赛数据时出错: {error_msg}")
+        
+        # 发送详细的错误通知
+        send_to_discord(message_type="error", error_details=error_msg)
 
-def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points"):
+def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None):
     """发送通知到Discord"""
     webhook_url = os.getenv('DISCORD_WEBHOOK')
     if not webhook_url:
@@ -100,11 +188,22 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
         }
     elif message_type == "error":
         # 错误通知
+        error_desc = f"NBA50监控程序在运行时遇到错误\n\n"
+        if error_details:
+            if "timeout" in error_details.lower():
+                error_desc += "**错误类型**: 网络超时\n**可能原因**: NBA API响应缓慢或网络连接问题\n**建议**: 程序会自动重试，如持续出现请检查网络状态\n\n"
+            elif "httpsconnectionpool" in error_details.lower():
+                error_desc += "**错误类型**: 连接失败\n**可能原因**: NBA API服务器暂时不可用\n**建议**: 稍后会自动重试\n\n"
+            else:
+                error_desc += f"**错误详情**: {error_details[:200]}{'...' if len(error_details) > 200 else ''}\n\n"
+        
+        error_desc += f"⏰ 错误时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+        
         data = {
             "content": "⚠️ **监控程序遇到错误**",
             "embeds": [{
                 "title": "程序执行异常",
-                "description": f"NBA50监控程序在运行时遇到错误，请检查日志\n\n⏰ 错误时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
+                "description": error_desc,
                 "color": 15158332, # 红色
                 "footer": {"text": "由 GitHub Actions 自动监控"}
             }]
@@ -122,7 +221,8 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
         }
     
     try:
-        response = requests.post(webhook_url, json=data)
+        print(f"📤 正在发送{message_type}类型的Discord通知...")
+        response = requests.post(webhook_url, json=data, timeout=10)
         if response.status_code == 204:
             if message_type == "startup":
                 print("✅ 成功发送启动通知")
@@ -132,8 +232,20 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
                 print("✅ 成功发送监控完成通知")
         else:
             print(f"❌ Discord通知发送失败: {response.status_code}")
+            print(f"响应内容: {response.text}")
     except Exception as e:
         print(f"❌ 发送Discord通知时出错: {e}")
+        import traceback
+        print(f"详细错误信息: {traceback.format_exc()}")
 
 if __name__ == "__main__":
-    check_for_50_points()
+    import sys
+    
+    # 检查命令行参数
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        # 只测试webhook
+        print("🧪 仅运行webhook测试...")
+        test_webhook()
+    else:
+        # 运行完整的NBA监控
+        check_for_50_points()
