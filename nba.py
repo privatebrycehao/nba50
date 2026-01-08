@@ -571,40 +571,15 @@ def check_for_50_points():
         }
         games_count = 0
     
-        # 方法1: 优先尝试NBA.com API（最稳定）
-        games_data, api_source = get_games_from_nba_com()
+        # 只使用ESPN API（最稳定且不会超时）
+        print("🏀 使用ESPN API获取数据...")
+        games_data, api_source = get_games_from_espn()
         if games_data is not None:
             games_count = len(games_data)
-            api_status['successful_api'] = "NBA.com API"
-            print(f"✅ NBA.com API成功，跳过其他API")
+            api_status['successful_api'] = "ESPN API"
+            print(f"✅ ESPN API成功获取到 {games_count} 场比赛")
         else:
-            api_status['failed_apis'].append("NBA.com API")
-        
-        # 方法2: 如果NBA.com失败，尝试原始的nba_api
-        if games_data is None:
-            try:
-                print("📊 方法2: 使用nba_api获取数据...")
-                scoreboard = get_scoreboard_with_retry()
-                games_df = scoreboard.get_data_frames()[0]  # GameHeader
-                
-                if not games_df.empty:
-                    games_count = len(games_df)
-                    print(f"✅ nba_api成功获取到 {games_count} 场比赛")
-                    games_data = games_df
-                    api_source = "nba_api"
-                    api_status['successful_api'] = "NBA API (nba_api)"
-            except Exception as e:
-                print(f"❌ nba_api获取失败: {e}")
-                api_status['failed_apis'].append("NBA API")
-        
-        # 方法3: 最后尝试ESPN API
-        if games_data is None:
-            games_data, api_source = get_games_from_espn()
-            if games_data is not None:
-                games_count = len(games_data)
-                api_status['successful_api'] = "ESPN API"
-            else:
-                api_status['failed_apis'].append("ESPN API")
+            api_status['failed_apis'].append("ESPN API")
         
         # 如果所有API都失败了
         if games_data is None:
