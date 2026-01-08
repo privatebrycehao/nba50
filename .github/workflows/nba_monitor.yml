@@ -2,11 +2,10 @@ name: NBA50 DoorDash Monitor
 
 on:
   schedule:
-    # 美西时间下午4点到晚上11点，每3小时运行一次
-    # 美西时间: 4PM, 7PM, 10PM (PST UTC-8)
-    # 对应UTC时间: 12AM(00), 3AM(03), 6AM(06) 次日
-    # 注意：夏令时期间(PDT UTC-7)会提前1小时
-    - cron: '0 0,3,6 * * *'
+    # UTC时间凌晨1点、4点、7点运行NBA监控
+    # 对应美西时间(PST UTC-8): 5PM, 8PM, 11PM 前一天
+    # 对应美西时间(PDT UTC-7): 6PM, 9PM, 12AM 前一天
+    - cron: '0 1,4,7 * * *'
   workflow_dispatch: # 允许你手动点击按钮测试
     inputs:
       test_mode:
