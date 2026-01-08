@@ -5,7 +5,7 @@ on:
     # UTC时间凌晨1点、4点、7点运行NBA监控
     # 对应美西时间(PST UTC-8): 5PM, 8PM, 11PM 前一天
     # 对应美西时间(PDT UTC-7): 6PM, 9PM, 12AM 前一天
-    - cron: '0 1,4,7 * * *'
+    - cron: '0 2,4,7 * * *'
   workflow_dispatch: # 允许你手动点击按钮测试
     inputs:
       test_mode:
