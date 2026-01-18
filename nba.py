@@ -285,23 +285,47 @@ def extract_players_points_from_summary(summary):
             for stat_table_idx, stat_table in enumerate(statistics):
                 stat_names = stat_table.get("statNames", [])
                 if not stat_names:
+                    print(f"        统计表 {stat_table_idx} 没有statNames")
                     continue
 
+                print(f"        统计表 {stat_table_idx} 的statNames: {stat_names}")
+                
                 pts_idx = None
                 for idx, name in enumerate(stat_names):
-                    if name.upper() == "PTS" or "points" in name.lower():
+                    name_upper = str(name).upper()
+                    name_lower = str(name).lower()
+                    if name_upper == "PTS" or "points" in name_lower or "pts" in name_lower:
                         pts_idx = idx
+                        print(f"          找到PTS字段，索引: {pts_idx}")
                         break
 
                 if pts_idx is None:
+                    print(f"        统计表 {stat_table_idx} 没有找到PTS字段")
                     continue
 
                 athletes = stat_table.get("athletes", [])
                 print(f"        统计表 {stat_table_idx} 包含 {len(athletes)} 名球员")
                 
-                for athlete in athletes:
-                    athlete_name = athlete.get("athlete", {}).get("displayName", "Unknown")
+                if not athletes:
+                    print(f"        统计表 {stat_table_idx} 的athletes数组为空")
+                    continue
+                
+                for athlete_idx, athlete in enumerate(athletes):
+                    # 尝试多种方式获取球员名字
+                    athlete_obj = athlete.get("athlete", {})
+                    athlete_name = (
+                        athlete_obj.get("displayName") or
+                        athlete_obj.get("fullName") or
+                        athlete_obj.get("shortName") or
+                        athlete.get("displayName") or
+                        athlete.get("fullName") or
+                        athlete.get("shortName") or
+                        "Unknown"
+                    )
+                    
                     stats = athlete.get("stats", [])
+                    print(f"          球员 {athlete_idx}: {athlete_name}, stats长度: {len(stats)}, pts_idx: {pts_idx}")
+                    
                     if pts_idx < len(stats):
                         try:
                             points = int(stats[pts_idx])
@@ -313,8 +337,10 @@ def extract_players_points_from_summary(summary):
                             if points >= 50:
                                 print(f"        ⚠️ 发现高分: {athlete_name} - {points}分")
                         except (ValueError, TypeError) as e:
-                            print(f"        解析 {athlete_name} 得分失败: {e}")
+                            print(f"        解析 {athlete_name} 得分失败: {e}, stats[{pts_idx}] = {stats[pts_idx] if pts_idx < len(stats) else 'N/A'}")
                             points = 0
+                    else:
+                        print(f"        球员 {athlete_name} 的stats数组长度不足: {len(stats)} < {pts_idx + 1}")
     except Exception as e:
         print(f"  解析summary球员数据失败: {e}")
         import traceback
@@ -345,9 +371,23 @@ def extract_top_scorers_from_event(game):
                 if leader_name in ["points", "pts"]:
                     leaders_list = leader_block.get("leaders", [])
                     print(f"          找到 {len(leaders_list)} 名得分王")
-                    for leader in leaders_list:
-                        player_name = leader.get("displayName", "Unknown")
+                    for leader_idx, leader in enumerate(leaders_list):
+                        # 尝试多种方式获取球员名字
+                        athlete_obj = leader.get("athlete", {})
+                        player_name = (
+                            athlete_obj.get("displayName") or
+                            athlete_obj.get("fullName") or
+                            athlete_obj.get("shortName") or
+                            leader.get("displayName") or
+                            leader.get("fullName") or
+                            leader.get("shortName") or
+                            leader.get("name") or
+                            "Unknown"
+                        )
+                        
                         points = leader.get("value", 0)
+                        print(f"          leader {leader_idx} 原始数据: {leader}")
+                        
                         try:
                             points_int = int(points) if isinstance(points, (int, float, str)) else 0
                             top_scorers.append({
@@ -357,7 +397,7 @@ def extract_top_scorers_from_event(game):
                             })
                             print(f"          得分王: {player_name} - {points_int}分")
                         except (ValueError, TypeError) as e:
-                            print(f"          解析得分失败: {e}")
+                            print(f"          解析得分失败: {e}, value = {points}")
     except Exception as e:
         print(f"    从event提取得分王失败: {e}")
         import traceback
