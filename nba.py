@@ -687,6 +687,7 @@ def check_for_50_points():
         print("ℹ️ 自动调度运行，跳过启动通知")
     
     found_50_points = False
+    highest_scorers = []  # 初始化最高得分球员列表
     
     try:
         # 尝试多个API来源
