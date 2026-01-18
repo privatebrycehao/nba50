@@ -198,8 +198,8 @@ def get_games_from_espn():
         pacific_today = get_pacific_time_date()
         pacific_yesterday = pacific_today - timedelta(days=1)
         
-        # 按优先级检查：美西时间的今天和昨天
-        for check_date in [pacific_today, pacific_yesterday]:
+        # 只检查美西时间的昨天
+        for check_date in [pacific_yesterday]:
             date_str = check_date.strftime('%Y%m%d')
             espn_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={date_str}"
             print(f"  检查美西时间日期: {date_str} ({check_date.strftime('%Y-%m-%d')})")
