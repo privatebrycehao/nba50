@@ -239,6 +239,93 @@ def get_games_from_espn():
         print(f"❌ ESPN API获取失败: {e}")
         return None, None
 
+def get_espn_summary(game_id):
+    """获取ESPN比赛summary数据"""
+    try:
+        summary_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event={game_id}"
+        response = requests.get(summary_url, timeout=30, headers=headers)
+        if response.status_code != 200:
+            print(f"  ESPN summary响应错误: {response.status_code}")
+            return None
+        return response.json()
+    except Exception as e:
+        print(f"  获取ESPN summary失败: {e}")
+        return None
+
+def extract_players_points_from_summary(summary):
+    """从ESPN summary中提取球员得分列表"""
+    players = []
+    if not summary:
+        return players
+
+    try:
+        team_blocks = summary.get("boxscore", {}).get("players", [])
+        for team_block in team_blocks:
+            team_name = team_block.get("team", {}).get("abbreviation", "UNK")
+            statistics = team_block.get("statistics", [])
+            if not statistics:
+                continue
+
+            # 找到包含PTS的统计表
+            for stat_table in statistics:
+                stat_names = stat_table.get("statNames", [])
+                if not stat_names:
+                    continue
+
+                pts_idx = None
+                for idx, name in enumerate(stat_names):
+                    if name.upper() == "PTS" or "points" in name.lower():
+                        pts_idx = idx
+                        break
+
+                if pts_idx is None:
+                    continue
+
+                for athlete in stat_table.get("athletes", []):
+                    athlete_name = athlete.get("athlete", {}).get("displayName", "Unknown")
+                    stats = athlete.get("stats", [])
+                    if pts_idx < len(stats):
+                        try:
+                            points = int(stats[pts_idx])
+                        except (ValueError, TypeError):
+                            points = 0
+
+                        players.append({
+                            "name": athlete_name,
+                            "points": points,
+                            "team": team_name,
+                        })
+    except Exception as e:
+        print(f"  解析summary球员数据失败: {e}")
+
+    return players
+
+def extract_top_scorers_from_event(game):
+    """从ESPN event数据中提取得分王信息（作为补充）"""
+    top_scorers = []
+    try:
+        competitions = game.get("competitions", [])
+        if not competitions:
+            return top_scorers
+
+        competitors = competitions[0].get("competitors", [])
+        for competitor in competitors:
+            team_abbr = competitor.get("team", {}).get("abbreviation", "UNK")
+            leaders = competitor.get("leaders", [])
+            for leader_block in leaders:
+                if leader_block.get("name", "").lower() in ["points", "pts"]:
+                    for leader in leader_block.get("leaders", []):
+                        player_name = leader.get("displayName", "Unknown")
+                        points = leader.get("value", 0)
+                        top_scorers.append({
+                            "name": player_name,
+                            "points": int(points) if isinstance(points, (int, float, str)) else 0,
+                            "team": team_abbr,
+                        })
+    except Exception:
+        pass
+    return top_scorers
+
 def get_games_from_nba_com_by_date(target_date):
     """根据指定日期获取NBA.com比赛数据"""
     try:
@@ -325,35 +412,75 @@ def get_games_from_nba_com():
     print("❌ NBA.com API未找到合适的比赛数据")
     return None, None
 
-def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_summary=None):
+def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_summary=None, highest_scorers=None):
     """检查ESPN格式的比赛数据中是否有50+得分"""
     found_50_points = False
-    
+    highest_scorers = []
+
     try:
         # ESPN API的比赛状态检查
-        status = game.get('status', {}).get('type', {}).get('name', '')
-        if status not in ['STATUS_FINAL', 'STATUS_IN_PROGRESS']:
+        status = game.get("status", {}).get("type", {}).get("name", "")
+        if status not in ["STATUS_FINAL", "STATUS_IN_PROGRESS", "STATUS_HALFTIME"]:
             print(f"  比赛未开始或状态未知: {status}")
             return False
-        
+
         # 获取比赛信息
-        home_team = game.get('competitions', [{}])[0].get('competitors', [{}])[0]
-        away_team = game.get('competitions', [{}])[0].get('competitors', [{}])[1]
-        
+        competitions = game.get("competitions", [{}])
+        competitors = competitions[0].get("competitors", []) if competitions else []
+        if len(competitors) < 2:
+            return False
+
+        home_team = competitors[0]
+        away_team = competitors[1]
         matchup = f"{away_team.get('team', {}).get('abbreviation', 'UNK')} @ {home_team.get('team', {}).get('abbreviation', 'UNK')}"
-        
-        # 检查两队的球员统计
-        for team in [home_team, away_team]:
-            team_name = team.get('team', {}).get('abbreviation', 'UNK')
-            
-            # ESPN API通常不直接提供球员统计，需要额外请求
-            # 这里我们先检查是否有可用的统计数据
-            if 'statistics' in team:
-                print(f"  检查 {team_name} 队球员数据...")
-                # 这里需要根据ESPN API的实际结构来解析球员数据
-                
+
+        game_id = game.get("id")
+        players = []
+        if game_id:
+            summary = get_espn_summary(game_id)
+            players = extract_players_points_from_summary(summary)
+
+        # 计算得分王并记录
+        if players:
+            top_player = max(players, key=lambda p: p.get("points", 0))
+            if highest_scorers is not None:
+                highest_scorers.append({
+                    "matchup": matchup,
+                    "name": top_player.get("name", "Unknown"),
+                    "points": top_player.get("points", 0),
+                    "team": top_player.get("team", "UNK"),
+                })
+
+            # 检查50+得分
+            for player in players:
+                if player.get("points", 0) >= 50:
+                    print(f"🔥 发现50+得分: {player['name']} ({player['team']}) - {player['points']}分")
+                    send_to_discord(
+                        player["name"],
+                        player["points"],
+                        player["team"],
+                        matchup,
+                        "50_points",
+                        api_status=api_status,
+                        games_count=games_count,
+                        games_summary=games_summary,
+                        highest_scorers=highest_scorers,
+                    )
+                    found_50_points = True
+        else:
+            # 从event里提取得分王（作为补充）
+            fallback_top = extract_top_scorers_from_event(game)
+            if fallback_top and highest_scorers is not None:
+                for player in fallback_top:
+                    highest_scorers.append({
+                        "matchup": matchup,
+                        "name": player.get("name", "Unknown"),
+                        "points": player.get("points", 0),
+                        "team": player.get("team", "UNK"),
+                    })
+
         return found_50_points
-        
+
     except Exception as e:
         print(f"  检查ESPN比赛数据时出错: {e}")
         return False
@@ -636,7 +763,7 @@ def check_for_50_points():
             games_summary = generate_game_summary(games_data, api_source)
             
             for game in games_data:
-                if check_espn_game_for_50_points(game, api_status, games_count, games_summary):
+                if check_espn_game_for_50_points(game, api_status, games_count, games_summary, highest_scorers):
                     found_50_points = True
     
         elif api_source == "nba_com":
@@ -671,7 +798,13 @@ def check_for_50_points():
         # 如果没有发现50+得分，发送完成通知
         if not found_50_points:
             print("✅ 监控完成，未发现50+得分")
-            send_to_discord(message_type="no_50_points", api_status=api_status, games_count=games_count, games_summary=games_summary)
+            send_to_discord(
+                message_type="no_50_points",
+                api_status=api_status,
+                games_count=games_count,
+                games_summary=games_summary,
+                highest_scorers=highest_scorers,
+            )
                 
     except Exception as e:
         error_msg = str(e)
@@ -687,7 +820,7 @@ def check_for_50_points():
         # 发送详细的错误通知
         send_to_discord(message_type="error", error_details=error_msg, api_status=api_status)
 
-def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None, api_status=None, games_count=0, games_summary=None):
+def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type="50_points", error_details=None, api_status=None, games_count=0, games_summary=None, highest_scorers=None):
     """发送通知到webhook（支持Discord和飞书）"""
     webhook_url = os.getenv('DISCORD_WEBHOOK')
     if not webhook_url:
@@ -744,6 +877,13 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
             content += "📋 **今日比赛详情**:\n\n"
             content += games_summary
             content += "\n"
+
+        # 添加每场比赛得分王
+        if highest_scorers:
+            content += "🏅 **每场比赛最高得分**:\n"
+            for scorer in highest_scorers:
+                content += f"- {scorer.get('matchup', 'Unknown')}: {scorer.get('name', 'Unknown')} ({scorer.get('team', 'UNK')}) - {scorer.get('points', 0)}分\n"
+            content += "\n"
         
         content += f"⏰ 检查时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
         
@@ -799,6 +939,13 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
         if games_summary:
             content += "📋 **今日所有比赛**:\n\n"
             content += games_summary
+            content += "\n"
+
+        # 添加每场比赛得分王
+        if highest_scorers:
+            content += "🏅 **每场比赛最高得分**:\n"
+            for scorer in highest_scorers:
+                content += f"- {scorer.get('matchup', 'Unknown')}: {scorer.get('name', 'Unknown')} ({scorer.get('team', 'UNK')}) - {scorer.get('points', 0)}分\n"
             content += "\n"
         
         content += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
