@@ -256,18 +256,33 @@ def extract_players_points_from_summary(summary):
     """从ESPN summary中提取球员得分列表"""
     players = []
     if not summary:
+        print(f"    summary数据为空")
         return players
 
     try:
-        team_blocks = summary.get("boxscore", {}).get("players", [])
-        for team_block in team_blocks:
+        boxscore = summary.get("boxscore", {})
+        if not boxscore:
+            print(f"    summary中没有boxscore数据")
+            return players
+            
+        team_blocks = boxscore.get("players", [])
+        if not team_blocks:
+            print(f"    boxscore中没有players数据")
+            return players
+            
+        print(f"    找到 {len(team_blocks)} 个球队的数据块")
+        
+        for team_idx, team_block in enumerate(team_blocks):
             team_name = team_block.get("team", {}).get("abbreviation", "UNK")
             statistics = team_block.get("statistics", [])
             if not statistics:
+                print(f"      球队 {team_name} 没有statistics数据")
                 continue
 
+            print(f"      球队 {team_name} 有 {len(statistics)} 个统计表")
+            
             # 找到包含PTS的统计表
-            for stat_table in statistics:
+            for stat_table_idx, stat_table in enumerate(statistics):
                 stat_names = stat_table.get("statNames", [])
                 if not stat_names:
                     continue
@@ -281,22 +296,29 @@ def extract_players_points_from_summary(summary):
                 if pts_idx is None:
                     continue
 
-                for athlete in stat_table.get("athletes", []):
+                athletes = stat_table.get("athletes", [])
+                print(f"        统计表 {stat_table_idx} 包含 {len(athletes)} 名球员")
+                
+                for athlete in athletes:
                     athlete_name = athlete.get("athlete", {}).get("displayName", "Unknown")
                     stats = athlete.get("stats", [])
                     if pts_idx < len(stats):
                         try:
                             points = int(stats[pts_idx])
-                        except (ValueError, TypeError):
+                            players.append({
+                                "name": athlete_name,
+                                "points": points,
+                                "team": team_name,
+                            })
+                            if points >= 50:
+                                print(f"        ⚠️ 发现高分: {athlete_name} - {points}分")
+                        except (ValueError, TypeError) as e:
+                            print(f"        解析 {athlete_name} 得分失败: {e}")
                             points = 0
-
-                        players.append({
-                            "name": athlete_name,
-                            "points": points,
-                            "team": team_name,
-                        })
     except Exception as e:
         print(f"  解析summary球员数据失败: {e}")
+        import traceback
+        print(f"  详细错误: {traceback.format_exc()}")
 
     return players
 
@@ -306,24 +328,40 @@ def extract_top_scorers_from_event(game):
     try:
         competitions = game.get("competitions", [])
         if not competitions:
+            print(f"    event中没有competitions数据")
             return top_scorers
 
         competitors = competitions[0].get("competitors", [])
+        print(f"    找到 {len(competitors)} 个competitor")
+        
         for competitor in competitors:
             team_abbr = competitor.get("team", {}).get("abbreviation", "UNK")
             leaders = competitor.get("leaders", [])
+            print(f"      球队 {team_abbr} 有 {len(leaders)} 个leader数据块")
+            
             for leader_block in leaders:
-                if leader_block.get("name", "").lower() in ["points", "pts"]:
-                    for leader in leader_block.get("leaders", []):
+                leader_name = leader_block.get("name", "").lower()
+                print(f"        leader类型: {leader_name}")
+                if leader_name in ["points", "pts"]:
+                    leaders_list = leader_block.get("leaders", [])
+                    print(f"          找到 {len(leaders_list)} 名得分王")
+                    for leader in leaders_list:
                         player_name = leader.get("displayName", "Unknown")
                         points = leader.get("value", 0)
-                        top_scorers.append({
-                            "name": player_name,
-                            "points": int(points) if isinstance(points, (int, float, str)) else 0,
-                            "team": team_abbr,
-                        })
-    except Exception:
-        pass
+                        try:
+                            points_int = int(points) if isinstance(points, (int, float, str)) else 0
+                            top_scorers.append({
+                                "name": player_name,
+                                "points": points_int,
+                                "team": team_abbr,
+                            })
+                            print(f"          得分王: {player_name} - {points_int}分")
+                        except (ValueError, TypeError) as e:
+                            print(f"          解析得分失败: {e}")
+    except Exception as e:
+        print(f"    从event提取得分王失败: {e}")
+        import traceback
+        print(f"    详细错误: {traceback.format_exc()}")
     return top_scorers
 
 def get_games_from_nba_com_by_date(target_date):
@@ -415,7 +453,9 @@ def get_games_from_nba_com():
 def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_summary=None, highest_scorers=None):
     """检查ESPN格式的比赛数据中是否有50+得分"""
     found_50_points = False
-    highest_scorers = []
+    # 修复：不要覆盖传入的highest_scorers，如果为None则初始化为空列表
+    if highest_scorers is None:
+        highest_scorers = []
 
     try:
         # ESPN API的比赛状态检查
@@ -433,16 +473,20 @@ def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_su
         home_team = competitors[0]
         away_team = competitors[1]
         matchup = f"{away_team.get('team', {}).get('abbreviation', 'UNK')} @ {home_team.get('team', {}).get('abbreviation', 'UNK')}"
+        print(f"  检查比赛: {matchup}")
 
         game_id = game.get("id")
         players = []
         if game_id:
+            print(f"    获取比赛 {game_id} 的详细数据...")
             summary = get_espn_summary(game_id)
             players = extract_players_points_from_summary(summary)
+            print(f"    从summary中提取到 {len(players)} 名球员数据")
 
         # 计算得分王并记录
         if players:
             top_player = max(players, key=lambda p: p.get("points", 0))
+            print(f"    得分王: {top_player.get('name', 'Unknown')} ({top_player.get('team', 'UNK')}) - {top_player.get('points', 0)}分")
             if highest_scorers is not None:
                 highest_scorers.append({
                     "matchup": matchup,
@@ -453,8 +497,9 @@ def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_su
 
             # 检查50+得分
             for player in players:
-                if player.get("points", 0) >= 50:
-                    print(f"🔥 发现50+得分: {player['name']} ({player['team']}) - {player['points']}分")
+                points = player.get("points", 0)
+                if points >= 50:
+                    print(f"🔥 发现50+得分: {player['name']} ({player['team']}) - {points}分")
                     send_to_discord(
                         player["name"],
                         player["points"],
@@ -469,20 +514,45 @@ def check_espn_game_for_50_points(game, api_status=None, games_count=0, games_su
                     found_50_points = True
         else:
             # 从event里提取得分王（作为补充）
+            print(f"    summary数据为空，尝试从event数据中提取...")
             fallback_top = extract_top_scorers_from_event(game)
-            if fallback_top and highest_scorers is not None:
+            print(f"    从event中提取到 {len(fallback_top)} 名得分王")
+            
+            if fallback_top:
+                # 记录得分王
                 for player in fallback_top:
-                    highest_scorers.append({
-                        "matchup": matchup,
-                        "name": player.get("name", "Unknown"),
-                        "points": player.get("points", 0),
-                        "team": player.get("team", "UNK"),
-                    })
+                    print(f"      得分王: {player.get('name', 'Unknown')} ({player.get('team', 'UNK')}) - {player.get('points', 0)}分")
+                    if highest_scorers is not None:
+                        highest_scorers.append({
+                            "matchup": matchup,
+                            "name": player.get("name", "Unknown"),
+                            "points": player.get("points", 0),
+                            "team": player.get("team", "UNK"),
+                        })
+                    
+                    # 检查50+得分
+                    points = player.get("points", 0)
+                    if points >= 50:
+                        print(f"🔥 发现50+得分 (从event): {player.get('name', 'Unknown')} ({player.get('team', 'UNK')}) - {points}分")
+                        send_to_discord(
+                            player.get("name", "Unknown"),
+                            points,
+                            player.get("team", "UNK"),
+                            matchup,
+                            "50_points",
+                            api_status=api_status,
+                            games_count=games_count,
+                            games_summary=games_summary,
+                            highest_scorers=highest_scorers,
+                        )
+                        found_50_points = True
 
         return found_50_points
 
     except Exception as e:
         print(f"  检查ESPN比赛数据时出错: {e}")
+        import traceback
+        print(f"  详细错误: {traceback.format_exc()}")
         return False
 
 def generate_game_summary(games_data, api_source):
