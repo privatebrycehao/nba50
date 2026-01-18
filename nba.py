@@ -145,61 +145,15 @@ def create_discord_message(title, content, color=65280):
         }]
     }
 
-def test_webhook():
-    """测试webhook连接"""
-    print("🧪 测试webhook连接...")
-    webhook_url = os.getenv('DISCORD_WEBHOOK')
-    
-    if not webhook_url:
-        print("❌ 错误: 未找到DISCORD_WEBHOOK环境变量")
-        return False
-    
-    print(f"✅ 找到webhook URL: {webhook_url[:50]}...")
-    
-    # 检测webhook类型
-    webhook_type = detect_webhook_type(webhook_url)
-    print(f"🔍 检测到webhook类型: {webhook_type}")
-    
-    # 根据类型创建测试消息
-    if webhook_type == "lark":
-        test_data = create_lark_message(
-            "🧪 Webhook测试", 
-            f"NBA50监控程序webhook连接正常\n\n⏰ 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-            "green"
-        )
-        expected_status = 200
-    else:
-        # 默认使用Discord格式
-        test_data = create_discord_message(
-            "连接测试成功！",
-            f"NBA50监控程序webhook连接正常\n\n⏰ 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC",
-            65280
-        )
-        expected_status = 204
-    
-    try:
-        response = requests.post(webhook_url, json=test_data, timeout=10)
-        if response.status_code == expected_status:
-            print("✅ Webhook测试成功！")
-            return True
-        else:
-            print(f"❌ Webhook测试失败，状态码: {response.status_code}")
-            print(f"响应内容: {response.text}")
-            return False
-    except Exception as e:
-        print(f"❌ Webhook测试出错: {e}")
-        return False
-
 def get_games_from_espn():
     """使用ESPN API获取今日NBA比赛数据"""
     print("🏀 尝试使用ESPN API获取数据...")
     try:
         # 获取美西时间的日期
         pacific_today = get_pacific_time_date()
-        pacific_yesterday = pacific_today - timedelta(days=1)
         
-        # 只检查美西时间的昨天
-        for check_date in [pacific_yesterday]:
+        # 检查美西时间的今天
+        for check_date in [pacific_today]:
             date_str = check_date.strftime('%Y%m%d')
             espn_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={date_str}"
             print(f"  检查美西时间日期: {date_str} ({check_date.strftime('%Y-%m-%d')})")
@@ -767,34 +721,8 @@ def check_for_50_points():
     # 首先测试webhook连接
     print("🤖 NBA50监控程序启动...")
     
-    # 显示运行环境信息
-    github_event = os.getenv('GITHUB_EVENT_NAME', 'local')
-    print(f"🔧 运行环境: {github_event}")
-    
-    is_manual_run = github_event in ['workflow_dispatch', 'local']
-    
-    if github_event == 'schedule':
-        print("📅 这是自动调度运行 - 跳过启动通知")
-    elif github_event == 'workflow_dispatch':
-        print("🔧 这是手动触发运行 - 发送启动通知")
-    else:
-        print("💻 这是本地运行 - 发送启动通知")
-    
-    if not test_webhook():
-        print("⚠️ Webhook测试失败，但继续执行程序...")
-    
     # 测试NBA API连接
     test_nba_api_connection()
-    
-    # 智能启动通知：只在手动运行时发送
-    if is_manual_run:
-        try:
-            send_to_discord(message_type="startup")
-            print("✅ 启动通知已发送")
-        except Exception as e:
-            print(f"❌ 发送启动通知失败: {e}")
-    else:
-        print("ℹ️ 自动调度运行，跳过启动通知")
     
     found_50_points = False
     highest_scorers = []  # 初始化最高得分球员列表
@@ -942,15 +870,7 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
     webhook_type = detect_webhook_type(webhook_url)
     
     # 根据消息类型和webhook类型创建消息
-    if message_type == "startup":
-        title = "🤖 NBA50监控启动"
-        content = f"NBA50分监控程序已启动\n开始检查今日NBA比赛中的50+得分情况...\n\n⏰ 运行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-        
-        if webhook_type == "lark":
-            data = create_lark_message(title, content, "blue")
-        else:
-            data = create_discord_message("NBA50分监控程序已启动", content, 3447003)
-    elif message_type == "no_games":
+    if message_type == "no_games":
         title = "📅 今日无NBA比赛"
         content = f"今日没有NBA比赛安排\n\n"
         
@@ -1074,9 +994,7 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
         expected_status = 200 if webhook_type == "lark" else 204
         
         if response.status_code == expected_status:
-            if message_type == "startup":
-                print("✅ 成功发送启动通知")
-            elif message_type == "50_points":
+            if message_type == "50_points":
                 print(f"✅ 成功发送通知: {player} {pts}分")
             else:
                 print("✅ 成功发送监控完成通知")
@@ -1089,13 +1007,5 @@ def send_to_discord(player=None, pts=None, team=None, matchup=None, message_type
         print(f"详细错误信息: {traceback.format_exc()}")
 
 if __name__ == "__main__":
-    import sys
-    
-    # 检查命令行参数
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        # 只测试webhook
-        print("🧪 仅运行webhook测试...")
-        test_webhook()
-    else:
-        # 运行完整的NBA监控
-        check_for_50_points()
+    # 运行完整的NBA监控
+    check_for_50_points()
