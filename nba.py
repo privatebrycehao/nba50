@@ -1,9 +1,6 @@
 import os
 import requests
-import time
-import json
-from nba_api.stats.endpoints import scoreboardv2, boxscoretraditionalv2
-from datetime import datetime, date, timedelta
+from datetime import datetime
 import pytz
 
 headers = {
@@ -15,69 +12,15 @@ headers = {
     'Referer': 'https://www.nba.com/'
 }
 
-def get_scoreboard_with_retry(max_retries=5, delay=10):
-    for attempt in range(max_retries):
-        try:
-            print(f"尝试获取比赛数据 (第{attempt + 1}次)...")
-            timeout_seconds = 60 + (attempt * 30)
-            print(f"  使用超时时间: {timeout_seconds}秒")
-            
-            if attempt < 2:
-                scoreboard = scoreboardv2.ScoreboardV2(timeout=timeout_seconds, headers=headers)
-            else:
-                scoreboard = scoreboardv2.ScoreboardV2(timeout=timeout_seconds)
-            
-            print("✅ 成功获取比赛数据")
-            return scoreboard
-        except Exception as e:
-            print(f"第{attempt + 1}次尝试失败: {e}")
-            if attempt < max_retries - 1:
-                wait_time = delay + (attempt * 5)
-                print(f"等待{wait_time}秒后重试...")
-                time.sleep(wait_time)
-            else:
-                print("❌ 所有重试都失败了")
-                raise e
-
-def get_boxscore_with_retry(game_id, max_retries=3, delay=5):
-    for attempt in range(max_retries):
-        try:
-            print(f"  获取比赛 {game_id} 数据 (第{attempt + 1}次)...")
-            timeout_seconds = 90 + (attempt * 30)
-            
-            if attempt < 2:
-                boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id, timeout=timeout_seconds, headers=headers)
-            else:
-                boxscore = boxscoretraditionalv2.BoxScoreTraditionalV2(game_id=game_id, timeout=timeout_seconds)
-            
-            return boxscore
-        except Exception as e:
-            print(f"  第{attempt + 1}次尝试失败: {e}")
-            if attempt < max_retries - 1:
-                wait_time = delay + (attempt * 3)
-                print(f"  等待{wait_time}秒后重试...")
-                time.sleep(wait_time)
-            else:
-                raise e
-
 def get_pacific_time_date():
-    try:
-        pacific_tz = pytz.timezone('US/Pacific')
-        utc_now = datetime.now(pytz.UTC)
-        pacific_now = utc_now.astimezone(pacific_tz)
-        
-        print(f"🕐 UTC时间: {utc_now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        print(f"🕐 美西时间: {pacific_now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        
-        return pacific_now.date()
-    except ImportError:
-        utc_now = datetime.utcnow()
-        pacific_now = utc_now - timedelta(hours=8)
-        
-        print(f"🕐 UTC时间: {utc_now.strftime('%Y-%m-%d %H:%M:%S')} UTC")
-        print(f"🕐 美西时间(估算): {pacific_now.strftime('%Y-%m-%d %H:%M:%S')} PST")
-        
-        return pacific_now.date()
+    pacific_tz = pytz.timezone('US/Pacific')
+    utc_now = datetime.now(pytz.UTC)
+    pacific_now = utc_now.astimezone(pacific_tz)
+    
+    print(f"🕐 UTC时间: {utc_now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"🕐 美西时间: {pacific_now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    
+    return pacific_now.date()
 
 def detect_webhook_type(webhook_url):
     if "discord" in webhook_url.lower():

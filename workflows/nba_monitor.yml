@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests nba_api
+          pip install requests pytz
 
       - name: Run Monitor
         env:
