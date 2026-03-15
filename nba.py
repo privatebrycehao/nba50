@@ -99,9 +99,8 @@ def get_games_from_espn():
                 print(f"✅ ESPN API成功获取到 {len(completed_games)} 场已完成/进行中的比赛 (美西时间: {date_str})")
                 return completed_games, "espn"
         
-        print("❌ ESPN API未找到已完成的比赛")
-        return None, None
-        
+        print("ℹ️ ESPN API请求成功，但今日暂无已完成或进行中的比赛")
+        return [], "espn"
     except Exception as e:
         print(f"❌ ESPN API获取失败: {e}")
         return None, None
@@ -374,8 +373,9 @@ def send_notification(player=None, pts=None, team=None, matchup=None, message_ty
     webhook_type = detect_webhook_type(webhook_url)
     
     if message_type == "no_games":
-        title = "📅 今日无NBA比赛"
-        content = f"今日没有NBA比赛安排\n\n"
+        title = "📅 今日暂无可检查的NBA比赛"
+        content = f"今日暂无已完成或进行中的NBA比赛\n\n"
+        content += "这通常表示今天没有比赛、比赛尚未开始，或当前还没有可用于50分监控的结果。\n\n"
         
         if api_status:
             content += f"📡 **数据来源**: {api_status.get('successful_api', 'Unknown')}\n"
