@@ -120,18 +120,18 @@ def get_espn_summary(game_id):
 def extract_players_points_from_summary(summary):
     players = []
     if not summary:
-        print(f"    summary数据为空")
+        print("    summary数据为空")
         return players
 
     try:
         boxscore = summary.get("boxscore", {})
         if not boxscore:
-            print(f"    summary中没有boxscore数据")
+            print("    summary中没有boxscore数据")
             return players
             
         team_blocks = boxscore.get("players", [])
         if not team_blocks:
-            print(f"    boxscore中没有players数据")
+            print("    boxscore中没有players数据")
             return players
             
         print(f"    找到 {len(team_blocks)} 个球队的数据块")
@@ -374,7 +374,7 @@ def send_notification(player=None, pts=None, team=None, matchup=None, message_ty
     
     if message_type == "no_games":
         title = "📅 今日暂无可检查的NBA比赛"
-        content = f"今日暂无已完成或进行中的NBA比赛\n\n"
+        content = "今日暂无已完成或进行中的NBA比赛\n\n"
         content += "这通常表示今天没有比赛、比赛尚未开始，或当前还没有可用于50分监控的结果。\n\n"
         
         if api_status:
@@ -393,7 +393,7 @@ def send_notification(player=None, pts=None, team=None, matchup=None, message_ty
             data = create_discord_message("监控完成", content, 10197915)
     elif message_type == "no_50_points":
         title = "📊 今日监控完成"
-        content = f"已检查完今日所有比赛，暂无球员得分达到50+\n\n"
+        content = "已检查完今日所有比赛，暂无球员得分达到50+\n\n"
         
         if api_status:
             content += f"📡 **数据来源**: {api_status.get('successful_api', 'Unknown')}\n"
@@ -423,7 +423,7 @@ def send_notification(player=None, pts=None, team=None, matchup=None, message_ty
             data = create_discord_message("未发现50+得分", content, 15844367)
     elif message_type == "error":
         title = "⚠️ 监控程序遇到错误"
-        error_desc = f"NBA50监控程序在运行时遇到错误\n\n"
+        error_desc = "NBA50监控程序在运行时遇到错误\n\n"
         
         if api_status:
             failed_apis = api_status.get('failed_apis', [])
