@@ -2,9 +2,8 @@ name: NBA50 DoorDash Monitor
 
 on:
   schedule:
-    # UTC时间凌晨1点、4点、7点运行NBA监控
-    # 对应美西时间(PST UTC-8): 5PM, 8PM, 11PM 前一天
-    # 对应美西时间(PDT UTC-7): 6PM, 9PM, 12AM 前一天
+    # UTC 时间 02:00、04:00、07:00 运行 NBA 监控
+    # 对应美西时间：PST 前一天 6PM、8PM、11PM；PDT 前一天 7PM、9PM及当天 12AM
     - cron: '0 2,4,7 * * *'
   workflow_dispatch: # 允许你手动点击按钮测试
     inputs:
@@ -17,12 +16,24 @@ on:
         - full
         - webhook_test
 
+concurrency:
+  group: nba50-monitor
+  cancel-in-progress: false
+
 jobs:
   check_nba:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Restore notification state
+        uses: actions/cache/restore@v4
+        with:
+          path: .nba50_state.json
+          key: ${{ runner.os }}-nba50-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-nba50-state-
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -40,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install requests nba_api pandas pytz
+          pip install -r requirements.txt
 
       - name: Run NBA 50+ Points Monitor
         env:
@@ -55,10 +66,17 @@ jobs:
             python nba.py
           elif [ "${{ github.event.inputs.test_mode }}" = "webhook_test" ]; then
             echo "🧪 Webhook测试模式"
-            python nba.py test
+            python nba.py webhook_test
           else
             echo "🔧 手动完整模式"
             python nba.py
           fi
           
           echo "✅ NBA监控完成"
+
+      - name: Save notification state
+        if: ${{ always() && hashFiles('.nba50_state.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .nba50_state.json
+          key: ${{ runner.os }}-nba50-state-${{ github.run_id }}-${{ github.run_attempt }}
