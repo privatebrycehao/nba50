@@ -15,6 +15,7 @@ from lib.webhook import (
     send_webhook,
 )
 
+
 def get_pacific_time_date():
     utc_now = datetime.now(timezone.utc)
     pacific_now = utc_now.astimezone(ZoneInfo('America/Los_Angeles'))
