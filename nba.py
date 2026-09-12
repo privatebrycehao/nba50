@@ -15,14 +15,6 @@ from lib.webhook import (
     send_webhook,
 )
 
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Referer': 'https://www.nba.com/'
-}
 
 def get_pacific_time_date():
     utc_now = datetime.now(timezone.utc)
@@ -44,7 +36,7 @@ def get_games_from_espn():
         espn_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={date_str}"
         print(f"  检查美西时间日期: {date_str} ({check_date.strftime('%Y-%m-%d')})")
         try:
-            response = requests.get(espn_url, timeout=30, headers=headers)
+            response = requests.get(espn_url, timeout=30)
             if response.status_code != 200:
                 print(f"    ESPN API响应错误: {response.status_code}")
                 continue
@@ -71,7 +63,7 @@ def get_games_from_espn():
 def get_espn_summary(game_id):
     try:
         summary_url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event={game_id}"
-        response = requests.get(summary_url, timeout=30, headers=headers)
+        response = requests.get(summary_url, timeout=30)
         if response.status_code != 200:
             print(f"  ESPN summary响应错误: {response.status_code}")
             return None
