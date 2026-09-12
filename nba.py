@@ -1,6 +1,5 @@
 import json
 import os
-import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -423,18 +422,6 @@ def alert_identity(alert):
     return f"{alert.get('game_id')}:{player_identity}"
 
 
-def send_test_message():
-    webhook_url = os.getenv('DISCORD_WEBHOOK')
-    if not webhook_url:
-        raise RuntimeError("未设置 DISCORD_WEBHOOK 环境变量")
-    webhook_type = detect_webhook_type(webhook_url)
-    title = "NBA50 Webhook 测试"
-    content = "固定测试消息：webhook_test 模式未访问 ESPN。"
-    payloads = (create_lark_messages(title, content, "blue") if webhook_type == "lark"
-                else create_discord_messages(title, content, 3447003))
-    send_webhook(webhook_url, webhook_type, payloads)
-
-
 def check_for_50_points():
     print("🤖 NBA50监控程序启动...")
     highest_scorers = []
@@ -500,7 +487,4 @@ def check_for_50_points():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "webhook_test":
-        send_test_message()
-    else:
-        check_for_50_points()
+    check_for_50_points()

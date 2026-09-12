@@ -5,16 +5,7 @@ on:
     # UTC 时间 02:00、04:00、07:00 运行 NBA 监控
     # 对应美西时间：PST 前一天 6PM、8PM、11PM；PDT 前一天 7PM、9PM及当天 12AM
     - cron: '0 2,4,7 * * *'
-  workflow_dispatch: # 允许你手动点击按钮测试
-    inputs:
-      test_mode:
-        description: '选择运行模式'
-        required: false
-        default: 'full'
-        type: choice
-        options:
-        - full
-        - webhook_test
+  workflow_dispatch: # 允许手动运行
 
 concurrency:
   group: nba50-monitor
@@ -60,17 +51,12 @@ jobs:
           echo "🕐 当前时间: $(date)"
           echo "🏀 开始检查NBA球员50+得分情况..."
           
-          # 检查运行模式
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "📅 自动调度运行 - NBA 50+监控"
-            python nba.py
-          elif [ "${{ github.event.inputs.test_mode }}" = "webhook_test" ]; then
-            echo "🧪 Webhook测试模式"
-            python nba.py webhook_test
           else
-            echo "🔧 手动完整模式"
-            python nba.py
+            echo "🔧 手动运行 - NBA 50+监控"
           fi
+          python nba.py
           
           echo "✅ NBA监控完成"
 
