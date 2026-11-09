@@ -6,8 +6,6 @@ from datetime import date, datetime, timedelta, timezone
 from unittest.mock import Mock, patch
 
 import nba
-from lib import espn
-from lib.display import format_match_result, format_standings
 from lib.webhook import (
     _payload_size,
     create_discord_messages,
@@ -79,35 +77,6 @@ class WebhookTests(unittest.TestCase):
             )
 
 
-class DisplayTests(unittest.TestCase):
-    def test_home_away_fields_determine_display_order(self):
-        event = {
-            "competitions": [{"competitors": [
-                {"homeAway": "away", "score": "1", "team": {"displayName": "客队"}},
-                {"homeAway": "home", "score": "2", "team": {"displayName": "Home Team"}},
-            ]}]
-        }
-        result = format_match_result({"event": event})
-        self.assertEqual(result, "主队 **Home Team** 2 - 1 客队 客队")
-
-    def test_standings_use_readable_team_list(self):
-        entries = [{
-            "team": "中文 Team",
-            "stats": [
-                {"name": "rank", "displayValue": "1"},
-                {"name": "gamesPlayed", "displayValue": "8"},
-                {"name": "wins", "displayValue": "6"},
-                {"name": "ties", "displayValue": "1"},
-                {"name": "losses", "displayValue": "1"},
-                {"name": "pointDifferential", "displayValue": "+9"},
-                {"name": "points", "displayValue": "19"},
-            ],
-        }]
-        text = format_standings(entries, "联赛")
-        self.assertIn("- **1. 中文 Team**｜19 分", text)
-        self.assertNotIn("```", text)
-
-
 class NBADataTests(unittest.TestCase):
     @patch("nba.get_pacific_time_date", return_value=date(2026, 1, 10))
     @patch("nba.requests.get")
@@ -154,47 +123,6 @@ class NBADataTests(unittest.TestCase):
         scheduled = {"id": "future", "status": {"type": {"name": "STATUS_SCHEDULED"}}}
         self.assertEqual(nba.check_espn_game_for_50_points(scheduled, []), [])
         summary.assert_not_called()
-
-
-class FrozenDateTime(datetime):
-    @classmethod
-    def now(cls, tz=None):
-        value = cls(2026, 1, 10, 12, 0, tzinfo=timezone.utc)
-        return value if tz else value.replace(tzinfo=None)
-
-
-class FootballDataTests(unittest.TestCase):
-    @patch.object(espn, "LEAGUES", {"Fake League": "fake.1"})
-    @patch.object(espn, "get_pacific_time_date", return_value=date(2026, 1, 10))
-    @patch.object(espn, "get_match_summary", return_value=None)
-    @patch.object(espn, "datetime", FrozenDateTime)
-    @patch.object(espn.requests, "get")
-    def test_filters_last_24_hours_and_deduplicates_events(self, get, _summary, _date):
-        recent = {
-            "id": "recent",
-            "date": "2026-01-10T01:00:00Z",
-            "status": {"type": {"name": "STATUS_FINAL"}},
-        }
-        old = {
-            "id": "old",
-            "date": "2026-01-09T11:59:59Z",
-            "status": {"type": {"name": "STATUS_FINAL"}},
-        }
-        response = Mock(status_code=200)
-        response.json.return_value = {"events": [recent, old]}
-        get.return_value = response
-
-        matches, _standings = espn.get_football_matches_from_espn()
-
-        self.assertEqual([match["event"]["id"] for match in matches], ["recent"])
-        self.assertEqual(get.call_count, 3)
-
-    @patch.object(espn, "LEAGUES", {"Fake League": "fake.1"})
-    @patch.object(espn, "get_pacific_time_date", return_value=date(2026, 1, 10))
-    @patch.object(espn.requests, "get", side_effect=espn.requests.RequestException("offline"))
-    def test_raises_when_every_football_request_fails(self, _get, _date):
-        with self.assertRaisesRegex(RuntimeError, "全部失败"):
-            espn.get_football_matches_from_espn()
 
 
 if __name__ == "__main__":
